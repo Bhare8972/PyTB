@@ -135,6 +135,12 @@ def unpack_raw_payload(payload: bytes) -> np.ndarray:
 
     return values
 
+
+## This function allocates large arrays three times. (np.unpackbits, np.dot, and subtraction)
+## in order to be fast enough this function needs to be written so that large arrays are not allocated. There are two ways to do this. 1) use in-place operators ( -= for example), 
+## and 2) allow the user to pass-in scratch space (e.g.  see the 'out' parameter of np.dot)
+
+
 def parse_packet(packet : bytes) -> dict:
     """
     Convert UDP transient raw data packet
@@ -158,6 +164,9 @@ def parse_packet(packet : bytes) -> dict:
         data = unpack_raw_payload(packet[66:])
     )
     return results_dict
+
+## you will need a funciton that ONLy parses the header. Thus, like this but doesn't unpack the data, 
+
 
 def rsn_to_time(rsn : int, sampling_rate: float = 0.2) -> astropy.time.Time:
     """
@@ -184,6 +193,34 @@ def rsn_to_time(rsn : int, sampling_rate: float = 0.2) -> astropy.time.Time:
 
     t = astropy.time.Time(rsn / sampling_rate * 1e9, format='utc')
     return t
+
+## this has two issues I do not like. 
+## 1) this single function adds an entire dependence to astropy. But this dependency is not at all needed ( astropy is hardly needed for keeping track of time )
+##               Note this also means that all downstream-code that uses your code will ALSO need astropy now just to handle the result of this one function
+## 2) the precision of astropy is a problem.
+## the general fix is as follows. Return instead two integers. The first integer is a unix time stamp (seconds past the epoc) and the second is number of samples past that second. 
+##    Reason we do this is becouse 1) it is very general,  2) it is very easy to convert this info into whatever format you need   3) it is easy to understand
+
+
+
+## this writer needs improvment
+## 1) It is sequential when it ought to stream.
+##      what I mean is that currently you assume all packets are provided, and then you write them all to disk.
+##      instead assume that the packets are streamed to you. That is, they are not available all at once and are not in-order.
+##      This changes the order of operations. First operation is to open the HDF5 file and hold it open for the duration of class lifespan.
+##      The class keeps track of the "next" packet that is needed to write to disk 
+##      then you have a function, I will name it "inject" for now. Inject takes one packet and if it is the packet you need, then you write it to disk, if not you put it on a que
+##      The que should have a maximum seqential size I call "Seq_Max". 
+##      If there are  Seq_Max number of sequential packets (i.e. no spaces between them) on teh que, then you assume the next packet you need was lost and you write zeros instead (and note it was lost)
+##
+## 2) this reader opens up the data from all packets. This will require FAR more ram than is available. Instead, ONLY open the data you need. 
+##      For example, read the packet header ONLY and then store the file-pointer for time being. Do not keep read the raw data unless you need it.
+##      When you need to write the data to disk, use the stored file-pointer to read the actual data array.
+##      At any point it time your code should only have 1 array of packet data available.Seq_Max
+##
+## 3) This file is named "read". But these next two objects have nothign to do with reading (writing and plotting instead).
+##      Writing and plotting ought to be their own python files
+ 
 
 class HDF5Writer:
 
